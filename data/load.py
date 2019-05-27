@@ -6,7 +6,7 @@ import tensorflow_hub as hub
 import tensorflow_datasets as tfds
 
 from tensorflow.keras import backend as K
-from ops.bert import tokenizer
+from ops.tokenization import tokenizer
 from config import config
 from functools import partial
 
@@ -43,7 +43,7 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     Sentence Embeddings is just a numeric class to distinguish between pairs of sentences.
     """
     tokens_1 = tokenizer.tokenize(sent_1.numpy())
-    tokens_2 = tokenizer.tokenize(sent_1.numpy())
+    tokens_2 = tokenizer.tokenize(sent_2.numpy())
     
     # Account for [CLS] and [SEP] with "- 2"
     if len(tokens_1) > seq_len - 2:

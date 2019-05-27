@@ -1,10 +1,8 @@
-import os
-import json
-import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
 
 from tensorflow.keras import backend as K
+
 
 
 class BertLayer(tf.keras.layers.Layer):
