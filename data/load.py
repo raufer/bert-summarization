@@ -48,8 +48,11 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     # Account for [CLS] and [SEP] with "- 2"
     if len(tokens_1) > seq_len - 2:
         tokens_1 = tokens_1[0:(seq_len - 2)]
-    if len(tokens_2) > seq_len - 2:
-        tokens_2 = tokens_2[0:(seq_len - 2)]        
+    if len(tokens_2) > (seq_len + 1) - 2:
+        tokens_2 = tokens_2[0:((seq_len + 1) - 2)]
+        
+    tokens_1 = ["[CLS]"] + tokens_1 + ["[SEP]"]
+    tokens_2 = ["[CLS]"] + tokens_2 + ["[SEP]"]
     
     input_ids_1 = tokenizer.convert_tokens_to_ids(tokens_1)
     input_ids_2 = tokenizer.convert_tokens_to_ids(tokens_2)
@@ -58,9 +61,9 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     input_mask_2 = [1] * len(input_ids_2)
 
     input_ids_1 = pad(input_ids_1, seq_len, 0)
-    input_ids_2 = pad(input_ids_2, seq_len, 0)
+    input_ids_2 = pad(input_ids_2, seq_len + 1, 0)
     input_mask_1 = pad(input_mask_1, seq_len, 0)
-    input_mask_2 = pad(input_mask_2, seq_len, 0)
+    input_mask_2 = pad(input_mask_2, seq_len + 1, 0)
     
     input_type_ids_1 = [0] * len(input_ids_1)
     input_type_ids_2 = [0] * len(input_ids_2)

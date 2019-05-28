@@ -5,6 +5,8 @@ import tensorflow as tf
 import tensorflow_hub as hub
 
 from tensorflow.keras import backend as K
+from tensorflow.python.keras.initializers import Constant
+
 from layers.normalization import LayerNormalization
 from ops.encoding import positional_encoding
 from ops.attention import scaled_dot_product_attention
@@ -239,23 +241,31 @@ class Decoder(tf.keras.layers.Layer):
 
     The target is put through an embedding which is summed with the positional encoding.
     The output of this summation is the input to the decoder layers.
-    The output of the decoder is the input to the final linear layer.    
+    The output of the decoder is the input to the final linear layer.
+    
+    If `pretrained_embeddings` are available, we use it as a word embedding matrix and do not perform further training
     """
-    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size, rate=0.1):
+    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size, rate=0.1, pretrained_embeddings=None):
         super(Decoder, self).__init__()
 
         self.d_model = d_model
         self.num_layers = num_layers
 
-        self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
+        if pretrained_embeddings is None:
+            self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
+        else:
+            self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model, trainable=False, embeddings_initializer=Constant(pretrained_embeddings))
+            
         self.pos_encoding = positional_encoding(target_vocab_size, self.d_model)
 
-        self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate) 
-                           for _ in range(num_layers)]
+        self.dec_layers = [
+            DecoderLayer(d_model, num_heads, dff, rate) 
+            for _ in range(num_layers)
+        ]
         self.dropout = tf.keras.layers.Dropout(rate)
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
-
+        
         seq_len = tf.shape(x)[1]
         attention_weights = {}
 

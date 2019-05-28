@@ -4,24 +4,30 @@ import tensorflow_hub as hub
 from tensorflow.keras import backend as K
 
 
+BERT_MODEL_URL = "https://tfhub.dev/google/bert_uncased_L-12_H-768_A-12/1"
+
+
 
 class BertLayer(tf.keras.layers.Layer):
     """
     Custom Keras layer, integrating BERT from tf-hub
     """
-    def __init__(self, url, seq_len=512, d_embedding=768, n_fine_tune_layers=None, **kwargs):
+    def __init__(self, url=BERT_MODEL_URL, seq_len=512, d_embedding=768, n_fine_tune_layers=None, **kwargs):
         self.url = url
         self.n_fine_tune_layers = n_fine_tune_layers
         self.seq_len = seq_len
         self.d_embedding = d_embedding
+        
         super(BertLayer, self).__init__(**kwargs)
-
-    def build(self, input_shape):
+        
         self.bert = hub.Module(
             self.url,
             trainable=self.trainable,
             name="{}_bert_module".format(self.name)
-        )
+        )                    
+        
+
+    def build(self, input_shape):    
 
         trainable_vars = self.bert.variables
         
