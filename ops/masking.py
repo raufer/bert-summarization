@@ -44,3 +44,35 @@ def create_masks(inp, tar):
 
     return enc_padding_mask, combined_mask, dec_padding_mask
 
+
+def mask_each_timestamp(x, mask_with):
+    """
+    !!! CURRENTLY NOT USED
+    
+    Masks each word in the summary draft one by one with the [MASK] token
+    At t-th time step the t-th word of input summary is
+    masked, and the decoder predicts the refined word given other
+    words of the summary.
+    
+    x :: (N, T)
+    returrn :: (N, T-2, T)
+    
+    We do not mask the first and last postition (corresponding to [CLS] and [SEP])
+    """
+
+    N, T = tf.shape(x)[0], tf.shape(x)[1]
+
+    first = tf.reshape(tf.tile(x[:, 0], [T-2]), [N, T-2, 1])
+    last = tf.reshape(tf.tile(x[:, -1], [T-2]), [N, T-2, 1])
+    
+    x = x[:, 1:-1]
+    T = T - 2
+    
+    masked = tf.reshape(tf.tile(x, [1, T]), [N, T, T])
+    
+    diag = tf.ones([N, T], dtype=masked.dtype) * mask_with
+    masked = tf.linalg.set_diag(masked, diag)
+    
+    masked = tf.concat([first, masked, last], axis=2)
+    
+    return masked

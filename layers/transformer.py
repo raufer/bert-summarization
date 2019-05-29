@@ -245,16 +245,19 @@ class Decoder(tf.keras.layers.Layer):
     
     If `pretrained_embeddings` are available, we use it as a word embedding matrix and do not perform further training
     """
-    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size, rate=0.1, pretrained_embeddings=None):
+    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size, rate=0.1):
         super(Decoder, self).__init__()
 
         self.d_model = d_model
         self.num_layers = num_layers
 
-        if pretrained_embeddings is None:
-            self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
-        else:
-            self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model, trainable=False, embeddings_initializer=Constant(pretrained_embeddings))
+#         if pretrained_embeddings is None:
+#             self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
+#         else:
+#             self.embedding = tf.keras.layers.Embedding(
+#                 target_vocab_size, d_model, trainable=False,
+#                 embeddings_initializer=Constant(pretrained_embeddings)
+#             )
             
         self.pos_encoding = positional_encoding(target_vocab_size, self.d_model)
 
@@ -269,7 +272,9 @@ class Decoder(tf.keras.layers.Layer):
         seq_len = tf.shape(x)[1]
         attention_weights = {}
 
-        x = self.embedding(x)  # (batch_size, target_seq_len, d_model)
+#         if not input_alreay_embedded:
+#             x = self.embedding(x)  # (batch_size, target_seq_len, d_model)
+            
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         x += self.pos_encoding[:, :seq_len, :]
 
