@@ -26,7 +26,7 @@ class BertLayer(tf.keras.layers.Layer):
             self.url,
             trainable=self.trainable,
             name="{}_bert_module".format(self.name)
-        )                    
+        )
         
         trainable_vars = self.bert.variables
         

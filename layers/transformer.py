@@ -12,8 +12,6 @@ from ops.encoding import positional_encoding
 from ops.attention import scaled_dot_product_attention
 
 
-
-
 class MultiHeadAttention(tf.keras.layers.Layer):
     """
     Multi-head attention consists of four parts:
@@ -43,12 +41,25 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         assert d_model % self.num_heads == 0
 
         self.depth = d_model // self.num_heads
+        
+    def build(self, input_shape):
 
-        self.wq = tf.keras.layers.Dense(d_model)
-        self.wk = tf.keras.layers.Dense(d_model)
-        self.wv = tf.keras.layers.Dense(d_model)
-
-        self.dense = tf.keras.layers.Dense(d_model)
+        self.wq = tf.keras.layers.Dense(self.d_model)
+        self.wk = tf.keras.layers.Dense(self.d_model)
+        self.wv = tf.keras.layers.Dense(self.d_model)
+        
+        self.dense = tf.keras.layers.Dense(self.d_model)
+        
+        for i in [self.wq, self.wk, self.wv, self.dense]:
+            i.build(input_shape)
+            for weight in i.trainable_weights:
+                if weight not in self._trainable_weights:
+                    self._trainable_weights.append(weight)
+            for weight in i.non_trainable_weights:
+                if weight not in self._non_trainable_weights:
+                    self._non_trainable_weights.append(weight)                    
+        
+        super(MultiHeadAttention, self).build(input_shape)
 
     def split_heads(self, x, batch_size):
         """Split the last dimension into (num_heads, depth).
@@ -107,16 +118,33 @@ class EncoderLayer(tf.keras.layers.Layer):
     The normalization is done on the d_model (last) axis. There are N encoder layers in the transformer.
     """
     def __init__(self, d_model, num_heads, dff, rate=0.1):
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dff = dff
+        self.rate = rate        
         super(EncoderLayer, self).__init__()
-
-        self.mha = MultiHeadAttention(d_model, num_heads)
-        self.ffn = point_wise_feed_forward_network(d_model, dff)
+        
+    def build(self, input_shape):
+        
+        self.mha = MultiHeadAttention(self.d_model, self.num_heads)
+        self.ffn = point_wise_feed_forward_network(self.d_model, self.dff)
 
         self.layernorm1 = LayerNormalization(epsilon=1e-6)
         self.layernorm2 = LayerNormalization(epsilon=1e-6)
 
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
+        self.dropout1 = tf.keras.layers.Dropout(self.rate)
+        self.dropout2 = tf.keras.layers.Dropout(self.rate)
+        
+        for i in [self.mha, self.ffn, self.layernorm1, self.layernorm2, self.dropout1, self.dropout2]:
+            i.build(input_shape)
+            for weight in i.trainable_weights:
+                if weight not in self._trainable_weights:
+                    self._trainable_weights.append(weight)
+            for weight in i.non_trainable_weights:
+                if weight not in self._non_trainable_weights:
+                    self._non_trainable_weights.append(weight)    
+        
+        super(EncoderLayer, self).build(input_shape)        
 
     def call(self, x, training, mask):
 
@@ -129,8 +157,6 @@ class EncoderLayer(tf.keras.layers.Layer):
         out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
 
         return out2
-
-
 
 
 class DecoderLayer(tf.keras.layers.Layer):
@@ -152,20 +178,37 @@ class DecoderLayer(tf.keras.layers.Layer):
     output and self-attending to its own output.
     """
     def __init__(self, d_model, num_heads, dff, rate=0.1):
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dff = dff
+        self.rate = rate
         super(DecoderLayer, self).__init__()
+        
+    def build(self, input_shape):        
 
-        self.mha1 = MultiHeadAttention(d_model, num_heads)
-        self.mha2 = MultiHeadAttention(d_model, num_heads)
+        self.mha1 = MultiHeadAttention(self.d_model, self.num_heads)
+        self.mha2 = MultiHeadAttention(self.d_model, self.num_heads)
 
-        self.ffn = point_wise_feed_forward_network(d_model, dff)
+        self.ffn = point_wise_feed_forward_network(self.d_model, self.dff)
 
         self.layernorm1 = LayerNormalization(epsilon=1e-6)
         self.layernorm2 = LayerNormalization(epsilon=1e-6)
         self.layernorm3 = LayerNormalization(epsilon=1e-6)
 
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
-        self.dropout3 = tf.keras.layers.Dropout(rate)
+        self.dropout1 = tf.keras.layers.Dropout(self.rate)
+        self.dropout2 = tf.keras.layers.Dropout(self.rate)
+        self.dropout3 = tf.keras.layers.Dropout(self.rate)
+        
+        for i in [self.mha1, self.mha2, self.ffn, self.layernorm1, self.layernorm2, self.layernorm3, self.dropout1, self.dropout2, self.dropout3]:
+            i.build(input_shape)
+            for weight in i.trainable_weights:
+                if weight not in self._trainable_weights:
+                    self._trainable_weights.append(weight)
+            for weight in i.non_trainable_weights:
+                if weight not in self._non_trainable_weights:
+                    self._non_trainable_weights.append(weight)    
+        
+        super(DecoderLayer, self).build(input_shape)            
 
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
@@ -203,17 +246,34 @@ class Encoder(tf.keras.layers.Layer):
 
         self.d_model = d_model
         self.num_layers = num_layers
-
-        self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model)
-        self.pos_encoding = positional_encoding(input_vocab_size, self.d_model)
+        self.num_heads = num_heads
+        self.dff = dff
+        self.input_vocab_size = input_vocab_size
+        self.rate = rate
+        
+    def build(self, input_shape):
+        
+        self.embedding = tf.keras.layers.Embedding(self.input_vocab_size, self.d_model)
+        self.pos_encoding = positional_encoding(self.input_vocab_size, self.d_model)
 
 
         self.enc_layers = [
-            EncoderLayer(d_model, num_heads, dff, rate)
-            for _ in range(num_layers)
+            EncoderLayer(self.d_model, self.num_heads, self.dff, self.rate)
+            for _ in range(self.num_layers)
         ]
 
-        self.dropout = tf.keras.layers.Dropout(rate)
+        self.dropout = tf.keras.layers.Dropout(self.rate)
+        
+        for i in [self.embedding] + self.enc_layers + [self.dropout]:
+            i.build(input_shape)
+            for weight in i.trainable_weights:
+                if weight not in self._trainable_weights:
+                    self._trainable_weights.append(weight)
+            for weight in i.non_trainable_weights:
+                if weight not in self._non_trainable_weights:
+                    self._non_trainable_weights.append(weight)    
+        
+        super(Encoder, self).build(input_shape)                    
 
     def call(self, x, training, mask):
 
@@ -250,6 +310,10 @@ class Decoder(tf.keras.layers.Layer):
 
         self.d_model = d_model
         self.num_layers = num_layers
+        self.num_heads = num_heads
+        self.dff = dff
+        self.target_vocab_size = target_vocab_size
+        self.rate = rate        
 
 #         if pretrained_embeddings is None:
 #             self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
@@ -258,14 +322,27 @@ class Decoder(tf.keras.layers.Layer):
 #                 target_vocab_size, d_model, trainable=False,
 #                 embeddings_initializer=Constant(pretrained_embeddings)
 #             )
+
+    def build(self, input_shape):
             
-        self.pos_encoding = positional_encoding(target_vocab_size, self.d_model)
+        self.pos_encoding = positional_encoding(self.target_vocab_size, self.d_model)
 
         self.dec_layers = [
-            DecoderLayer(d_model, num_heads, dff, rate) 
-            for _ in range(num_layers)
+            DecoderLayer(self.d_model, self.num_heads, self.dff, self.rate) 
+            for _ in range(self.num_layers)
         ]
-        self.dropout = tf.keras.layers.Dropout(rate)
+        self.dropout = tf.keras.layers.Dropout(self.rate)
+        
+        for i in self.dec_layers + [self.dropout]:
+            i.build(input_shape)
+            for weight in i.trainable_weights:
+                if weight not in self._trainable_weights:
+                    self._trainable_weights.append(weight)
+            for weight in i.non_trainable_weights:
+                if weight not in self._non_trainable_weights:
+                    self._non_trainable_weights.append(weight)    
+        
+        super(Decoder, self).build(input_shape)          
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         
