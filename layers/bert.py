@@ -12,13 +12,15 @@ class BertLayer(tf.keras.layers.Layer):
     """
     Custom Keras layer, integrating BERT from tf-hub
     """
-    def __init__(self, url=BERT_MODEL_URL, seq_len=512, d_embedding=768, n_fine_tune_layers=None, **kwargs):
+    def __init__(self, url=BERT_MODEL_URL, seq_len=512, d_embedding=768, n_fine_tune_layers=0, **kwargs):
         self.url = url
         self.n_fine_tune_layers = n_fine_tune_layers
         self.seq_len = seq_len
         self.d_embedding = d_embedding
         
         super(BertLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):   
         
         self.bert = hub.Module(
             self.url,
@@ -26,26 +28,21 @@ class BertLayer(tf.keras.layers.Layer):
             name="{}_bert_module".format(self.name)
         )                    
         
-
-    def build(self, input_shape):    
-
         trainable_vars = self.bert.variables
         
-        if self.trainable:
+        # Remove unused layers
+        trainable_vars = [var for var in trainable_vars if not "/cls/" in var.name]
 
-            # Remove unused layers
-            trainable_vars = [var for var in trainable_vars if not "/cls/" in var.name]
+        # Select how many layers to fine tune
+        trainable_vars = []
 
-            # Select how many layers to fine tune
-            trainable_vars = trainable_vars[-self.n_fine_tune_layers :]
+        # Add to trainable weights
+        for var in trainable_vars:
+            self._trainable_weights.append(var)
 
-            # Add to trainable weights
-            for var in trainable_vars:
-                self._trainable_weights.append(var)
-
-            for var in self.bert.variables:
-                if var not in self._trainable_weights:
-                    self._non_trainable_weights.append(var)
+        for var in self.bert.variables:
+            if var not in self._trainable_weights:
+                self._non_trainable_weights.append(var)
 
         super(BertLayer, self).build(input_shape)
 
