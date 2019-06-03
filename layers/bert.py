@@ -56,6 +56,5 @@ class BertLayer(tf.keras.layers.Layer):
         return result
 
     def compute_output_shape(self, input_shape):
-        raise ValueError()
         return (input_shape[0], self.seq_len, self.d_embedding)
 

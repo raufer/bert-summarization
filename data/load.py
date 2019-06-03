@@ -94,7 +94,7 @@ def filter_max_length(x, x1, x2, y, y1, y2, max_length=config.MAX_EXAMPLE_LEN):
     return predicate
 
 
-def pipeline(examples, tokenizer, cache=True):
+def pipeline(examples, tokenizer, cache=False):
     """
     Prepare a Dataset to return the following elements
     x_ids, x_mask, x_segments, y_ids, y_maks, y_segments
