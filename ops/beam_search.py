@@ -248,7 +248,7 @@ class SequenceBeamSearch(object):
         flat_ids = _flatten_beam_dim(alive_seq)  # [batch_size * beam_size]
         flat_cache = nest.map_structure(_flatten_beam_dim, alive_cache)
 
-        flat_logits, flat_cache = self.symbols_to_logits_fn(flat_ids, i, flat_cache)
+        flat_logits, flat_cache = self.symbols_to_logits_fn(flat_ids, i)
 
         # Unflatten logits to shape [batch_size, beam_size, vocab_size]
         logits = _unflatten_beam_dim(flat_logits, self.batch_size, self.beam_size)

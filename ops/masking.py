@@ -53,7 +53,7 @@ def mask_timestamp(x, i, mask_with):
     words of the summary.
     
     x :: (N, T)
-    returrn :: (N, T)
+    return :: (N, T)
     """
 
     N, T = tf.shape(x)[0], tf.shape(x)[1]
