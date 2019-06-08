@@ -121,5 +121,13 @@ def load_cnn_dailymail(tokenizer=tokenizer):
     train_dataset = pipeline(train, tokenizer)
     val_dataset = pipeline(val, tokenizer)
     test_dataset = pipeline(test, tokenizer)
-    return train_dataset, val_dataset, test_dataset, metadata
+    
+    # grab information regarding the number of examples
+    metadata = json.loads(metadata.as_json)
+
+    n_test_examples = int(metadata['splits'][0]['statistics']['numExamples'])
+    n_train_examples = int(metadata['splits'][1]['statistics']['numExamples'])
+    n_val_examples = int(metadata['splits'][2]['statistics']['numExamples'])
+    
+    return train_dataset, val_dataset, test_dataset, n_train_examples, n_val_examples, n_test_examples
     
