@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow_hub as hub
+
 from bert.tokenization import FullTokenizer
 
 
@@ -32,3 +33,17 @@ def create_tokenizer_from_hub_module(bert_hub_url, bert_module=None):
 
 
 tokenizer = create_tokenizer_from_hub_module(BERT_MODEL_URL)
+
+
+def convert_idx_to_token_tensor(inputs, tokenizer=tokenizer):
+    '''
+    Converts int32 tensor to string tensor.
+    inputs: 1d int32 tensor. indices.
+    tokenizer :: [int] -> str
+    Returns
+    1d string tensor.
+    '''
+    def f(inputs):
+        return ' '.join(tokenizer.convert_ids_to_tokens(inputs))
+
+    return tf.py_func(f, [inputs], tf.string)
