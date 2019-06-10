@@ -14,10 +14,10 @@ def calculate_rouge(y, y_hat):
     """
     
     def f(a, b):
-        rouges = rouge.get_scores(' '.join(a), ' '.join(b))[0]
+        rouges = rouge.get_scores(a.decode("utf-8") , b.decode("utf-8") )[0]
         r1_val, r2_val, rl_val = rouges['rouge-1']["f"], rouges['rouge-2']["f"], rouges['rouge-l']["f"]
-        r_avg = np.mean([r1_val, r2_val, rl_val], dtype=np.float32)
-        return r1_val, r2_val, rl_val, r_vag
+        r_avg = np.mean([r1_val, r2_val, rl_val], dtype=np.float64)
+        return r1_val, r2_val, rl_val, r_avg
     
-    return tf.py_func(f, [y, y_hat], [tf.float32, tf.float32, tf.float32, tf.float32])    
+    return tf.py_func(f, [y, y_hat], [tf.float64, tf.float64, tf.float64, tf.float64])    
     

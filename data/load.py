@@ -11,6 +11,13 @@ from config import config
 from functools import partial
 
 
+# Special Tokens
+UNK_ID = 100
+CLS_ID = 101
+SEP_ID = 102
+MASK_ID = 103
+
+
 def pad(l, n, pad=0):
     """
     Pad the list 'l' to have size 'n' using 'padding_element'
