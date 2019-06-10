@@ -2,13 +2,13 @@ from bunch import Bunch
 
 
 config = {
-    'NUM_EPOCHS': 36,    
-    "BATCH_SIZE": 2,
-    "BUFFER_SIZE": 1,
+    'NUM_EPOCHS': 4,    
+    "BATCH_SIZE": 36,
+    "BUFFER_SIZE": 10000,
     "INITIAL_LR": 0.003,
     "WARMUP_STEPS": 4000,
-    "SEQ_LEN": 20,
-    "MAX_EXAMPLE_LEN": 20,
+    "SEQ_LEN": 100,
+    "MAX_EXAMPLE_LEN": 512,
     "VOCAB_SIZE": 30522,    
     "NUM_LAYERS": 8,
     "D_MODEL": 768,
