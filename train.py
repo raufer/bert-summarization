@@ -103,7 +103,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         self.seq_len = seq_len
         self.vocab_size = vocab_size
-    
+        
         self.bert = BertLayer(seq_len=seq_len, d_embedding=d_model, trainable=False)
         
         embedding_matrix = _embedding_from_bert()
@@ -272,17 +272,19 @@ class AbstractiveSummarization(tf.keras.Model):
         # (batch_size x (seq_len - 1), 1, 1, seq_len) 
         padding_mask = tf.tile(padding_mask, [T-1, 1, 1, 1])
         
-        # (batch_size x (seq_len - 1), seq_len, d_bert)
-        context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
+        with tf.device("/device:CPU:0"):
+        
+            # (batch_size x (seq_len - 1), seq_len, d_bert)
+            context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
                 
-        # (batch_size x (seq_len - 1), seq_len, d_bert), (_)
-        dec_outputs, attention_dists = self.decoder(
-            context_vectors,
-            enc_output,
-            training,
-            look_ahead_mask=None,
-            padding_mask=padding_mask
-        )
+            # (batch_size x (seq_len - 1), seq_len, d_bert), (_)
+            dec_outputs, attention_dists = self.decoder(
+                context_vectors,
+                enc_output,
+                training,
+                look_ahead_mask=None,
+                padding_mask=padding_mask
+            )
                 
         # (batch_size x (seq_len - 1), seq_len - 1, d_bert)
         dec_outputs = dec_outputs[:, 1:, :]
@@ -403,28 +405,26 @@ class AbstractiveSummarization(tf.keras.Model):
                 
         # (batch_size, 1, 1, seq_len), (_), (batch_size, 1, 1, seq_len)
         enc_padding_mask, combined_mask, dec_padding_mask = create_masks(input_ids, target_ids[:, :-1])
-        
-        with tf.device("/device:GPU:0"):
 
-            # (batch_size, seq_len, d_bert)
-            enc_output = self.encode(input_ids, input_mask, input_segment_ids)         
+        # (batch_size, seq_len, d_bert)
+        enc_output = self.encode(input_ids, input_mask, input_segment_ids)         
 
-            # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
-            logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(
-                enc_output=enc_output,
-                look_ahead_mask=combined_mask,
-                padding_mask=dec_padding_mask,
-                target_ids=target_ids[:, :-1],
-                training=True
-            )             
+        # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
+        logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(
+            enc_output=enc_output,
+            look_ahead_mask=combined_mask,
+            padding_mask=dec_padding_mask,
+            target_ids=target_ids[:, :-1],
+            training=True
+        )             
 
-            # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-            logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
-                enc_output=enc_output,
-                target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
-                padding_mask=dec_padding_mask,
-                training=True
-            )
+        # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
+        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
+            enc_output=enc_output,
+            target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
+            padding_mask=dec_padding_mask,
+            training=True
+        )
 
         return logits_draft_summary, logits_refined_summary
     
@@ -435,15 +435,14 @@ class AbstractiveSummarization(tf.keras.Model):
         and the defined decoder
         """
         
-        with tf.device("/device:CPU:0"):
             
-            # (batch_size, seq_len) x3
-            input_ids, input_mask, input_segment_ids = inp
+        # (batch_size, seq_len) x3
+        input_ids, input_mask, input_segment_ids = inp
 
-            dec_padding_mask = create_padding_mask(input_ids)        
+        dec_padding_mask = create_padding_mask(input_ids)        
 
-            # (batch_size, seq_len, d_bert)
-            enc_output = self.encode(input_ids, input_mask, input_segment_ids)
+        # (batch_size, seq_len, d_bert)
+        enc_output = self.encode(input_ids, input_mask, input_segment_ids)
         
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
         logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary_greedy(
@@ -590,7 +589,7 @@ train_loss, train_op, global_step, train_summaries = model.train(xs, ys)
 saver = tf.train.Saver(max_to_keep=config.NUM_EPOCHS)
 
 
-config_tf = tf.ConfigProto(allow_soft_placement=True)
+config_tf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
 config_tf.gpu_options.allocator_type = 'BFC'
 config_tf.gpu_options.per_process_gpu_memory_fraction = 0.60
 config_tf.gpu_options.allow_growth=True
