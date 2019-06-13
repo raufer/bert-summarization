@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import shutil
 import logging
 import numpy as np
@@ -10,27 +11,55 @@ import tensorflow_hub as hub
 import tensorflow_datasets as tfds
 
 from tensorflow.keras import backend as K
-from tqdm import tqdm
+from tensorflow.python.keras.initializers import Constant
 
+from tqdm import tqdm
 from config import config
 
 from data.load import load_cnn_dailymail
+
 from data.load import UNK_ID
 from data.load import CLS_ID
 from data.load import SEP_ID
 from data.load import MASK_ID
 
+from random import randint
+from rouge import Rouge
 
-BERT_MODEL_URL = "https://tfhub.dev/google/bert_uncased_L-12_H-768_A-12/1"
+from layers.transformer import Encoder
+from layers.transformer import Decoder
+from layers.bert import BertLayer, BERT_MODEL_URL
+from layers.transformer import Decoder
 
-warmup_steps = config.WARMUP_STEPS
-initial_lr = config.INITIAL_LR
+from ops.masking import create_masks
+from ops.masking import create_look_ahead_mask
+from ops.masking import create_padding_mask
+from ops.masking import mask_timestamp
+from ops.masking import tile_and_mask_diagonal
+
+from ops.tokenization import tokenizer
+from ops.tokenization import convert_idx_to_token_tensor
+
+from ops.session import initialize_vars
+from ops.session import save_variable_specs
+
+from ops.metrics import calculate_rouge
+from ops.tensor import with_column
+from ops.regularization import label_smoothing
+from ops.optimization import noam_scheme
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 tf.logging.set_verbosity(tf.logging.INFO) 
 tf.enable_resource_variables()
+
+
+warmup_steps = config.WARMUP_STEPS
+initial_lr = config.INITIAL_LR
+
+BERT_MODEL_URL = "https://tfhub.dev/google/bert_uncased_L-12_H-768_A-12/1"
 
 logging.info('Job Configuration:\n' + str(config))
 
@@ -43,35 +72,6 @@ n_test_batches = n_test_examples // config.BATCH_SIZE
 logging.info(f"'{n_train_examples}' training examples, '{n_train_batches}' batches")
 logging.info(f"'{n_val_examples}' validation examples, '{n_val_batches}' batches")
 logging.info(f"'{n_test_examples}' testing examples, '{n_test_batches}' batches")
-
-import os
-import json
-import numpy as np
-import tensorflow as tf
-import tensorflow_hub as hub
-
-from random import randint
-from tensorflow.keras import backend as K
-from tensorflow.python.keras.initializers import Constant
-
-from layers.transformer import Encoder
-from layers.transformer import Decoder
-from layers.bert import BertLayer, BERT_MODEL_URL
-from layers.transformer import Decoder
-
-from ops.masking import create_masks
-from ops.masking import create_look_ahead_mask
-from ops.masking import create_padding_mask
-from ops.masking import mask_timestamp
-
-from ops.session import initialize_vars
-from ops.metrics import calculate_rouge
-from ops.tensor import with_column
-from ops.regularization import label_smoothing
-from ops.optimization import noam_scheme
-from ops.tokenization import tokenizer
-from ops.tokenization import convert_idx_to_token_tensor
-
 
 
 def _embedding_from_bert():
@@ -86,7 +86,9 @@ def _embedding_from_bert():
     with tf.Session() as sess:
         initialize_vars(sess)
         embedding_matrix = sess.run(bert.variable_map['bert/embeddings/word_embeddings'])
-                        
+        
+#     tf.reset_default_graph()        
+                
     logger.info(f"Embedding matrix shape '{embedding_matrix.shape}'")
     return embedding_matrix
 
@@ -222,7 +224,7 @@ class AbstractiveSummarization(tf.keras.Model):
                 padding_mask=padding_mask
             )
             
-            # (batch_size, 1, vocab_len)
+            # (batch_size, 1, seq_len)
             dec_outputs += [dec_output[:,i:i+1,:]]
             attention_dists += [{k: v[:, i:i+1, :] for k, v in attention_dist.items()}]
 
@@ -242,6 +244,76 @@ class AbstractiveSummarization(tf.keras.Model):
         preds = tf.to_int32(tf.argmax(logits, axis=-1))
         
         return logits, preds, attention_dists
+    
+    def refined_summary_v2(self, enc_output, target, padding_mask, training=True):
+
+        logging.info("Building: 'Refined Summary'")              
+        
+        N = tf.shape(enc_output)[0]
+        T = tf.shape(enc_output)[1]
+
+        # (batch_size, seq_len) x3
+        dec_inp_ids, dec_inp_mask, dec_inp_segment_ids = target
+        
+        # since we are using teacher forcing we do not need an autoregressice mechanism here
+
+        # (batch_size x (seq_len - 1), seq_len) 
+        dec_inp_ids = tile_and_mask_diagonal(dec_inp_ids, mask_with=MASK_ID)
+        
+        # (batch_size x (seq_len - 1), seq_len) 
+        dec_inp_mask = tf.tile(dec_inp_mask, [T-1, 1])
+        
+        # (batch_size x (seq_len - 1), seq_len) 
+        dec_inp_segment_ids = tf.tile(dec_inp_segment_ids, [T-1, 1])
+        
+        # (batch_size x (seq_len - 1), seq_len, d_bert) 
+        enc_output = tf.tile(enc_output, [T-1, 1, 1])
+        
+        # (batch_size x (seq_len - 1), 1, 1, seq_len) 
+        padding_mask = tf.tile(padding_mask, [T-1, 1, 1, 1])
+        
+        # (batch_size x (seq_len - 1), seq_len, d_bert)
+        context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
+                
+        # (batch_size x (seq_len - 1), seq_len, d_bert), (_)
+        dec_outputs, attention_dists = self.decoder(
+            context_vectors,
+            enc_output,
+            training,
+            look_ahead_mask=None,
+            padding_mask=padding_mask
+        )
+                
+        # (batch_size x (seq_len - 1), seq_len - 1, d_bert)
+        dec_outputs = dec_outputs[:, 1:, :]
+        
+        # (batch_size x (seq_len - 1), (seq_len - 1))
+        diag = tf.linalg.set_diag(tf.zeros([T-1, T-1]), tf.ones([T-1]))
+        diag = tf.tile(diag, [N, 1])
+        
+        where = tf.not_equal(diag, 0)
+        indices = tf.where(where)
+        
+        # (batch_size x (seq_len - 1), d_bert)
+        dec_outputs = tf.gather_nd(dec_outputs, indices)
+        
+        # (batch_size x (seq_len - 1), d_bert)
+        dec_outputs = tf.reshape(dec_outputs, [N, T-1, -1])
+        
+        # (batch_size, seq_len - 1, vocab_len)
+        logits = self.final_layer(dec_outputs)
+        
+        # (batch_size, seq_len, vocab_len), accommodate for initial [CLS]
+        logits = tf.concat(
+            [tf.tile(tf.expand_dims(tf.one_hot([CLS_ID], self.vocab_size), axis=0), [N, 1, 1]), logits],
+            axis=1
+        )
+        
+        # (batch_size, seq_len)
+        preds = tf.to_int32(tf.argmax(logits, axis=-1))
+        
+        # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)   
+        return logits, preds, attention_dists             
     
     def refined_summary_greedy(self, enc_output, draft_summary, padding_mask, training=False):
         """
@@ -345,7 +417,7 @@ class AbstractiveSummarization(tf.keras.Model):
         )
                 
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary(
+        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
             enc_output=enc_output,
             target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
             padding_mask=dec_padding_mask,
@@ -418,7 +490,7 @@ class AbstractiveSummarization(tf.keras.Model):
         global_step = tf.train.get_or_create_global_step()
         learning_rate = noam_scheme(initial_lr, global_step, warmup_steps)
         optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-9)
-        train_op = optimizer.minimize(loss, global_step=global_step)
+        train_op = optimizer.minimize(loss, global_step=global_step, colocate_gradients_with_ops=True)
 
         tf.summary.scalar('learning_rate', learning_rate, family='train')
         tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='train')
@@ -499,108 +571,101 @@ model = AbstractiveSummarization(
 )
 
 
-import math
-
-from rouge import Rouge
-from ops.session import initialize_vars
-from ops.session import save_variable_specs
-
-
 train_iterator = train_dataset.make_initializable_iterator()
 train_stream = train_iterator.get_next()
 
-val_iterator = val_dataset.make_initializable_iterator()
-val_stream = val_iterator.get_next()
+# val_iterator = val_dataset.make_initializable_iterator()
+# val_stream = val_iterator.get_next()
 
 xs, ys = train_stream[:3], train_stream[3:]
 train_loss, train_op, global_step, train_summaries = model.train(xs, ys)
 
-xs, ys = val_stream[:3], val_stream[3:]
-y, y_hat, eval_loss, eval_summaries = model.eval(xs, ys)
+# xs, ys = val_stream[:3], val_stream[3:]
+# y, y_hat, eval_loss, eval_summaries = model.eval(xs, ys)
 
 saver = tf.train.Saver(max_to_keep=config.NUM_EPOCHS)
 
-# with tf.Session() as sess:
 
-sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+
+    if os.path.isdir(config.LOGDIR):
+        shutil.rmtree(config.LOGDIR)
+
+    os.mkdir(config.LOGDIR)
+
+    ckpt = tf.train.latest_checkpoint(config.CHECKPOINTDIR)
+
+    rouge = Rouge()
+
+    if ckpt is None:
+        logging.info("Initializing from scratch")
+        sess.run(tf.global_variables_initializer())
+        save_variable_specs(os.path.join(config.LOGDIR, "specs"))
+    else:
+        saver.restore(sess, ckpt)        
+
+    summary_writer_train = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'train'), sess.graph)
+    summary_writer_eval = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'eval'), sess.graph)
+
+
+    initialize_vars(sess)
+
+    _gs = sess.run(global_step)
+
+    sess.run(train_iterator.initializer)
+#     sess.run(val_iterator.initializer)
+
+    total_steps = config.NUM_EPOCHS * n_train_batches
+
+    logger.info(f"Running Training Job for '{total_steps}' steps")
     
-if os.path.isdir(config.LOGDIR):
-    shutil.rmtree(config.LOGDIR)
+    for i in tqdm(range(_gs, total_steps+1)):
 
-os.mkdir(config.LOGDIR)
+        _loss, _, _gs, _summary = sess.run([train_loss, train_op, global_step, train_summaries])
 
-ckpt = tf.train.latest_checkpoint(config.CHECKPOINTDIR)
+        epoch = math.ceil(_gs / n_train_batches)
 
-rouge = Rouge()
+        summary_writer_train.add_summary(_summary, _gs)
+        summary_writer_train.flush() 
 
-if ckpt is None:
-    logging.info("Initializing from scratch")
-    sess.run(tf.global_variables_initializer())
-    save_variable_specs(os.path.join(config.LOGDIR, "specs"))
-else:
-    saver.restore(sess, ckpt)        
+#         if (_gs and _gs % n_train_batches == 0):
 
-summary_writer_train = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'train'), sess.graph)
-summary_writer_eval = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'eval'), sess.graph)
+#             logger.info(f"Epoch '{epoch}' done")
+#             logger.info(f"Current training step: '{_gs}")
 
+#             _y, _y_hat, _eval_summary = sess.run([y, y_hat, eval_summaries])
 
-initialize_vars(sess)
+#             summary_writer_eval.add_summary(_eval_summary, 0)
+#             summary_writer_eval.flush()       
 
-_gs = sess.run(global_step)
+#             # monitor a random sample
+#             rnd = randint(0, _y.shape[0] - 1)
 
-sess.run(train_iterator.initializer)
-sess.run(val_iterator.initializer)
+#             y_rnd = ' '.join(tokenizer.convert_ids_to_tokens(_y[rnd]))
+#             y_hat_rnd = ' '.join(tokenizer.convert_ids_to_tokens(_y_hat[rnd]))
 
-total_steps = config.NUM_EPOCHS * n_train_batches
+#             rouges = rouge.get_scores(y_rnd, y_hat_rnd)[0]
+#             r1_val, r2_val, rl_val = rouges['rouge-1']["f"], rouges['rouge-2']["f"], rouges['rouge-l']["f"]
 
-logger.info(f"Running Training Job for '{total_steps}' steps")
+#             print('Target:')
+#             print(y_rnd)
+#             print('Prediction:')
+#             print(y_hat_rnd)
 
-for i in tqdm(range(_gs, total_steps+1)):
+#             print(f"ROUGE-1 '{r1_val}'")
+#             print(f"ROUGE-2 '{r2_val}'")
+#             print(f"ROUGE-L '{rl_val}'")
+#             print(f"ROUGE-AVG '{np.mean([r1_val, r2_val, rl_val])}'", '\n--\n')
 
-    _loss, _, _gs, _summary = sess.run([train_loss, train_op, global_step, train_summaries])
+#             logging.info("Checkpoint: Saving Model")
 
-    epoch = math.ceil(_gs / n_train_batches)
+#             model_output = f"abstractive_summarization_2019_epoch_{epoch}_loss_{str(round(_loss, 4))}"
 
-    summary_writer_train.add_summary(_summary, _gs)
-    summary_writer_train.flush() 
+#             ckpt_name = os.path.join(config.CHECKPOINTDIR, model_output)
 
-    if (_gs and _gs % n_train_batches == 0) or (_gs == 0):
+#             saver.save(sess, ckpt_name, global_step=_gs)
 
-        logger.info(f"Epoch '{epoch}' done")
-        logger.info(f"Current training step: '{_gs}")
+#             logging.info(f"After training '{_gs}' steps, '{ckpt_name}' has been saved.")
 
-        _y, _y_hat, _eval_summary = sess.run([y, y_hat, eval_summaries])
-
-        summary_writer_eval.add_summary(_eval_summary, 0)
-        summary_writer_eval.flush()       
-
-        # monitor a random sample
-        rnd = randint(0, _y.shape[0] - 1)
-
-        y_rnd = ' '.join(tokenizer.convert_ids_to_tokens(_y[rnd]))
-        y_hat_rnd = ' '.join(tokenizer.convert_ids_to_tokens(_y_hat[rnd]))
-
-        rouges = rouge.get_scores(y_rnd, y_hat_rnd)[0]
-        r1_val, r2_val, rl_val = rouges['rouge-1']["f"], rouges['rouge-2']["f"], rouges['rouge-l']["f"]
-
-        print('Target:')
-        print(y_rnd)
-        print('Prediction:')
-        print(y_hat_rnd)
-
-        print(f"ROUGE-1 '{r1_val}'")
-        print(f"ROUGE-2 '{r2_val}'")
-        print(f"ROUGE-L '{rl_val}'")
-        print(f"ROUGE-AVG '{np.mean([r1_val, r2_val, rl_val])}'")
-
-        logging.info("Checkpoint: Saving Model")
-
-        model_output = f"abstractive_summarization_2019_epoch_{epoch}_loss_{str(round(_loss, 4))}"
-
-        ckpt_name = os.path.join(config.CHECKPOINTDIR, model_output)
-
-        saver.save(sess, ckpt_name, global_step=_gs)
-
-        logging.info(f"After training '{_gs}' steps, '{ckpt_name}' has been saved.")
-
-summary_writer.close()        
+    summary_writer_train.close()  
+#     summary_writer_eval.close()  

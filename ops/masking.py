@@ -67,3 +67,36 @@ def mask_timestamp(x, i, mask_with):
 
     return masked
 
+
+def tile_and_mask_diagonal(x, mask_with):
+    """    
+    Masks each word in the summary draft one by one with the [MASK] token
+    At t-th time step the t-th word of input summary is
+    masked, and the decoder predicts the refined word given other
+    words of the summary.
+    
+    x :: (N, T)
+    returrn :: (N, T-1, T)
+    
+    We do not mask the first and last postition (corresponding to [CLS]
+    """
+
+    N, T = tf.shape(x)[0], tf.shape(x)[1]
+
+    first = tf.reshape(tf.tile(x[:, 0], [T-1]), [N, T-1, 1])
+    
+    x = x[:, 1:]
+    T = T - 1
+    
+    masked = tf.reshape(tf.tile(x, [1, T]), [N, T, T])
+    
+    diag = tf.ones([N, T], dtype=masked.dtype) * mask_with
+    masked = tf.linalg.set_diag(masked, diag)
+    
+    masked = tf.concat([first, masked], axis=2)
+    
+    masked = tf.reshape(masked, [N*T, T+1])
+    
+    return masked
+
+
