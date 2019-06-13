@@ -3,7 +3,7 @@ from bunch import Bunch
 
 config = {
     'NUM_EPOCHS': 4,    
-    "BATCH_SIZE": 10,
+    "BATCH_SIZE": 1,
     "BUFFER_SIZE": 1000,
     "INITIAL_LR": 0.003,
     "WARMUP_STEPS": 4000,

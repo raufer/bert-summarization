@@ -24,7 +24,7 @@ class BertLayer(tf.keras.layers.Layer):
         
         self.bert = hub.Module(
             self.url,
-            trainable=self.trainable,
+            trainable=False,
             name="{}_bert_module".format(self.name)
         )
         

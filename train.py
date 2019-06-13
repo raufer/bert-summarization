@@ -128,8 +128,10 @@ class AbstractiveSummarization(tf.keras.Model):
         # (batch_size, seq_len)
         dec_input = target_ids
         
+#         with tf.device("/device:GPU:0"):
+        
         # (batch_size, seq_len, d_bert)
-        embeddings = self.embedding(target_ids)    
+        embeddings = self.embedding(target_ids) 
 
         # (batch_size, seq_len, d_bert), (_)            
         dec_output, attention_dist = self.decoder(embeddings, enc_output, training, look_ahead_mask, padding_mask)
@@ -272,19 +274,19 @@ class AbstractiveSummarization(tf.keras.Model):
         # (batch_size x (seq_len - 1), 1, 1, seq_len) 
         padding_mask = tf.tile(padding_mask, [T-1, 1, 1, 1])
         
-        with tf.device("/device:CPU:0"):
+#         with tf.device("/device:GPU:0"):
         
-            # (batch_size x (seq_len - 1), seq_len, d_bert)
-            context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
-                
-            # (batch_size x (seq_len - 1), seq_len, d_bert), (_)
-            dec_outputs, attention_dists = self.decoder(
-                context_vectors,
-                enc_output,
-                training,
-                look_ahead_mask=None,
-                padding_mask=padding_mask
-            )
+        # (batch_size x (seq_len - 1), seq_len, d_bert)
+        context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
+
+        # (batch_size x (seq_len - 1), seq_len, d_bert), (_)
+        dec_outputs, attention_dists = self.decoder(
+            context_vectors,
+            enc_output,
+            training,
+            look_ahead_mask=None,
+            padding_mask=padding_mask
+        )
                 
         # (batch_size x (seq_len - 1), seq_len - 1, d_bert)
         dec_outputs = dec_outputs[:, 1:, :]
@@ -407,7 +409,7 @@ class AbstractiveSummarization(tf.keras.Model):
         enc_padding_mask, combined_mask, dec_padding_mask = create_masks(input_ids, target_ids[:, :-1])
 
         # (batch_size, seq_len, d_bert)
-        enc_output = self.encode(input_ids, input_mask, input_segment_ids)         
+        enc_output = self.encode(input_ids, input_mask, input_segment_ids)
 
         # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
         logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(

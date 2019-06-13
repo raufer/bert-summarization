@@ -12,6 +12,11 @@ from ops.encoding import positional_encoding
 from ops.attention import scaled_dot_product_attention
 
 
+from itertools import cycle
+
+selector = cycle([1, 2, 3])
+
+
 class MultiHeadAttention(tf.keras.layers.Layer):
     """
     Multi-head attention consists of four parts:
@@ -358,6 +363,11 @@ class Decoder(tf.keras.layers.Layer):
         x = self.dropout(x, training=training)
 
         for i in range(self.num_layers):
+            
+#             dv = f"/device:GPU:{str(next(selector))}"
+#             print(f"With device )
+#             with tf.device():
+                
             x, block1, block2 = self.dec_layers[i](x, enc_output, training, look_ahead_mask, padding_mask)
 
             attention_weights['decoder_layer{}_block1'.format(i+1)] = block1
