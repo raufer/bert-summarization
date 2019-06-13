@@ -88,7 +88,7 @@ def tf_encode(tokenizer, seq_len):
     """    
     def f(s1, s2):
         encode_ = partial(encode, tokenizer=tokenizer, seq_len=seq_len)
-        return tf.py_function(encode_, [s1, s2], [tf.int64, tf.int64, tf.int64, tf.int64, tf.int64, tf.int64])
+        return tf.py_function(encode_, [s1, s2], [tf.int32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32])
     
     return f
 
