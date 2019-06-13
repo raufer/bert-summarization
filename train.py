@@ -403,27 +403,29 @@ class AbstractiveSummarization(tf.keras.Model):
                 
         # (batch_size, 1, 1, seq_len), (_), (batch_size, 1, 1, seq_len)
         enc_padding_mask, combined_mask, dec_padding_mask = create_masks(input_ids, target_ids[:, :-1])
-
-        # (batch_size, seq_len, d_bert)
-        enc_output = self.encode(input_ids, input_mask, input_segment_ids)
-                
-        # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
-        logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(
-            enc_output=enc_output,
-            look_ahead_mask=combined_mask,
-            padding_mask=dec_padding_mask,
-            target_ids=target_ids[:, :-1],
-            training=True
-        )
-                
-        # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
-            enc_output=enc_output,
-            target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
-            padding_mask=dec_padding_mask,
-            training=True
-        )
         
+        with tf.device("/device:GPU:0"):
+
+            # (batch_size, seq_len, d_bert)
+            enc_output = self.encode(input_ids, input_mask, input_segment_ids)         
+
+            # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
+            logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(
+                enc_output=enc_output,
+                look_ahead_mask=combined_mask,
+                padding_mask=dec_padding_mask,
+                target_ids=target_ids[:, :-1],
+                training=True
+            )             
+
+            # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
+            logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
+                enc_output=enc_output,
+                target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
+                padding_mask=dec_padding_mask,
+                training=True
+            )
+
         return logits_draft_summary, logits_refined_summary
     
     
@@ -432,14 +434,16 @@ class AbstractiveSummarization(tf.keras.Model):
         __call__ for inference; uses teacher forcing for both the draft
         and the defined decoder
         """
-            
-        # (batch_size, seq_len) x3
-        input_ids, input_mask, input_segment_ids = inp
         
-        dec_padding_mask = create_padding_mask(input_ids)        
+        with tf.device("/device:CPU:0"):
+            
+            # (batch_size, seq_len) x3
+            input_ids, input_mask, input_segment_ids = inp
 
-        # (batch_size, seq_len, d_bert)
-        enc_output = self.encode(input_ids, input_mask, input_segment_ids)
+            dec_padding_mask = create_padding_mask(input_ids)        
+
+            # (batch_size, seq_len, d_bert)
+            enc_output = self.encode(input_ids, input_mask, input_segment_ids)
         
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
         logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary_greedy(
@@ -586,7 +590,14 @@ train_loss, train_op, global_step, train_summaries = model.train(xs, ys)
 saver = tf.train.Saver(max_to_keep=config.NUM_EPOCHS)
 
 
-with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+config_tf = tf.ConfigProto(allow_soft_placement=True)
+config_tf.gpu_options.allocator_type = 'BFC'
+config_tf.gpu_options.per_process_gpu_memory_fraction = 0.60
+config_tf.gpu_options.allow_growth=True
+
+run_options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
+
+with tf.Session(config=config_tf) as sess:
 
     if os.path.isdir(config.LOGDIR):
         shutil.rmtree(config.LOGDIR)
@@ -621,7 +632,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
     
     for i in tqdm(range(_gs, total_steps+1)):
 
-        _loss, _, _gs, _summary = sess.run([train_loss, train_op, global_step, train_summaries])
+        _loss, _, _gs, _summary = sess.run([train_loss, train_op, global_step, train_summaries], options=run_options)
 
         epoch = math.ceil(_gs / n_train_batches)
 
