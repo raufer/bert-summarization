@@ -12,11 +12,6 @@ from ops.encoding import positional_encoding
 from ops.attention import scaled_dot_product_attention
 
 
-from itertools import cycle
-
-selector = cycle([1, 2, 3])
-
-
 class MultiHeadAttention(tf.keras.layers.Layer):
     """
     Multi-head attention consists of four parts:
