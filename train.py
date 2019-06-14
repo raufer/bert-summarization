@@ -86,8 +86,6 @@ def _embedding_from_bert():
     with tf.Session() as sess:
         initialize_vars(sess)
         embedding_matrix = sess.run(bert.variable_map['bert/embeddings/word_embeddings'])
-        
-#     tf.reset_default_graph()        
                 
     logger.info(f"Embedding matrix shape '{embedding_matrix.shape}'")
     return embedding_matrix
@@ -127,9 +125,7 @@ class AbstractiveSummarization(tf.keras.Model):
             
         # (batch_size, seq_len)
         dec_input = target_ids
-        
-#         with tf.device("/device:GPU:0"):
-        
+                
         # (batch_size, seq_len, d_bert)
         embeddings = self.embedding(target_ids) 
 
@@ -199,7 +195,7 @@ class AbstractiveSummarization(tf.keras.Model):
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
         return dec_logits, summary, attention_dists    
     
-    def refined_summary(self, enc_output, target, padding_mask, training=True):
+    def refined_summary_iter(self, enc_output, target, padding_mask, training=True):
         
         logging.info("Building: 'Refined Summary'")  
         
@@ -247,7 +243,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         return logits, preds, attention_dists
     
-    def refined_summary_v2(self, enc_output, target, padding_mask, training=True):
+    def refined_summary(self, enc_output, target, padding_mask, training=True):
 
         logging.info("Building: 'Refined Summary'")              
         
@@ -421,7 +417,7 @@ class AbstractiveSummarization(tf.keras.Model):
         )             
 
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_v2(
+        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary(
             enc_output=enc_output,
             target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
             padding_mask=dec_padding_mask,

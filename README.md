@@ -6,6 +6,8 @@ The solution makes use of an pre-trained language model to get contextualized re
 
 This extends the sphere of possible applications where labelled data is scarce; since the model learns to summarize given the contextualized BERT representations, we have a good chance of generalization for other domains, even if training was done using the CNN/DM dataset.
 
+`tensorflowhub` to load the BERT module.
+
 
 #### Environment
 
@@ -71,6 +73,31 @@ Missing:
 | DROPOUT_RATE    | 0.1         | Dropout rate to use in training             |
 | LOGDIR          | log         | Location to write tensorboard objects       |
 | CHECKPOINTDIR   | checkpoint  | Location to write model checkpoints         |
+
+
+##### Debug
+
+Track GPU memory usage with:
+
+```
+watch -n 2 nvidia-smi
+```
+
+System RAM usage with:
+
+```
+watch -n 2 cat /proc/meminfo
+```
+
+`report_tensor_allocations_upon_oom` is set to `True` so that we can see which variables
+are filling up the memory.
+
+```
+run_options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
+...
+sess.run(..., options=run_options)
+``
+
 
 
 
