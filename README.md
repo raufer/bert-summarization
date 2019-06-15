@@ -58,12 +58,12 @@ Missing:
 | **Parameter**   | **Default** | **Description**                             |
 |-----------------|-------------|---------------------------------------------|
 | NUM_EPOCHS      | 4           | Number of epochs to train                   |
-| BATCH_SIZE      | 10          | Batch size for each training step           |
+| BATCH_SIZE      | 2           | Batch size for each training step           |
 | BUFFER_SIZE     | 1000        | Buffer size for the tf.Dataset pipeline     |
 | INITIAL_LR      | 0.003       | Initial learning rate value                 |
 | WARMUP_STEPS    | 4000        |                                             |
 | INPUT_SEQ_LEN   | 512         | Article length to truncate                  |
-| OUTPUT_SEQ_LEN  | 100         | Summary length to truncate                  |
+| OUTPUT_SEQ_LEN  | 75          | Summary length to truncate                  |
 | MAX_EXAMPLE_LEN | None        | Threshold to filter examples (articles)     |
 | VOCAB_SIZE      | 30522       | Length of the vocabulary                    |
 | NUM_LAYERS      | 8           | Number of layers of the Transformer Decoder |

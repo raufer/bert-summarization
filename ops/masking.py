@@ -29,7 +29,7 @@ def create_look_ahead_mask(size):
 
 def create_masks(inp, tar):
     # Encoder padding mask
-    enc_padding_mask = create_padding_mask(inp)
+    # enc_padding_mask = create_padding_mask(inp)
 
     # Used in the 2nd attention block in the decoder.
     # This padding mask is used to mask the encoder outputs.
@@ -42,7 +42,8 @@ def create_masks(inp, tar):
     dec_target_padding_mask = create_padding_mask(tar)
     combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
 
-    return enc_padding_mask, combined_mask, dec_padding_mask
+#     return enc_padding_mask, combined_mask, dec_padding_mask
+    return combined_mask, dec_padding_mask
 
 
 def mask_timestamp(x, i, mask_with):
