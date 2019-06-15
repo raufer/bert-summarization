@@ -12,10 +12,9 @@ class BertLayer(tf.keras.layers.Layer):
     """
     Custom Keras layer, integrating BERT from tf-hub
     """
-    def __init__(self, url=BERT_MODEL_URL, seq_len=512, d_embedding=768, n_fine_tune_layers=0, **kwargs):
+    def __init__(self, url=BERT_MODEL_URL, d_embedding=768, n_fine_tune_layers=0, **kwargs):
         self.url = url
         self.n_fine_tune_layers = n_fine_tune_layers
-        self.seq_len = seq_len
         self.d_embedding = d_embedding
         
         super(BertLayer, self).__init__(**kwargs)
@@ -56,5 +55,5 @@ class BertLayer(tf.keras.layers.Layer):
         return result
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], self.seq_len, self.d_embedding)
+        return (input_shape[0], input_shape[1], self.d_embedding)
 

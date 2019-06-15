@@ -12,6 +12,7 @@ This extends the sphere of possible applications where labelled data is scarce; 
 #### Environment
 
 Python: `3.6`
+
 Tensorflow version: `1.13.1`
 
 `requirements.txt` exposes the library dependencies
@@ -41,11 +42,9 @@ The core of the solution is implemented; there are however some missing pieces.
 Implemented:
 
     * Encoder (BERT)
-    * Draft Decoder (matrix-form)
-    * Draft Decoder (greedy autoregressive form)
-    * Refined Decoder (iterative-form)
-    * Refined Decoder (matrix-form)
-    * Refined Decoder (greedy autoregressive form)    
+    * Draft Decoder
+    * Refined Decoder
+    * Autoregressive evaluation (greedy)
     
 Missing:
 
@@ -63,7 +62,8 @@ Missing:
 | BUFFER_SIZE     | 1000        | Buffer size for the tf.Dataset pipeline     |
 | INITIAL_LR      | 0.003       | Initial learning rate value                 |
 | WARMUP_STEPS    | 4000        |                                             |
-| SEQ_LEN         | 100         | Sequence length to use                      |
+| INPUT_SEQ_LEN   | 512         | Article length to truncate                  |
+| OUTPUT_SEQ_LEN  | 100         | Summary length to truncate                  |
 | MAX_EXAMPLE_LEN | 512         | Threshold to filter examples                |
 | VOCAB_SIZE      | 30522       | Length of the vocabulary                    |
 | NUM_LAYERS      | 8           | Number of layers of the Transformer Decoder |

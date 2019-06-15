@@ -96,12 +96,14 @@ class AbstractiveSummarization(tf.keras.Model):
     Pretraining-Based Natural Language Generation for Text Summarization 
     https://arxiv.org/pdf/1902.09243.pdf
     """
-    def __init__(self, num_layers, d_model, num_heads, dff, vocab_size, seq_len, rate=0.1):
+    def __init__(self, num_layers, d_model, num_heads, dff, vocab_size, input_seq_len, output_seq_len, rate=0.1):
         super(AbstractiveSummarization, self).__init__()
         
-        self.seq_len = seq_len
-        self.vocab_size = vocab_size
+        self.input_seq_len = input_seq_len
+        self.output_seq_len = output_seq_len
         
+        self.vocab_size = vocab_size
+    
         self.bert = BertLayer(seq_len=seq_len, d_embedding=d_model, trainable=False)
         
         embedding_matrix = _embedding_from_bert()
@@ -158,7 +160,7 @@ class AbstractiveSummarization(tf.keras.Model):
         summary += [dec_input]
         dec_logits += [tf.tile(tf.expand_dims(tf.one_hot([CLS_ID], self.vocab_size), axis=0), [N, 1, 1])]
     
-        for i in tqdm(range(0, self.seq_len - 1)):
+        for i in tqdm(range(0, self.output_seq_len - 1)):
                     
             # (batch_size, i+1, d_bert)
             embeddings = self.embedding(dec_input)    
@@ -196,6 +198,9 @@ class AbstractiveSummarization(tf.keras.Model):
         return dec_logits, summary, attention_dists    
     
     def refined_summary_iter(self, enc_output, target, padding_mask, training=True):
+        """
+        Iterative version of refined summary using teacher forcing
+        """
         
         logging.info("Building: 'Refined Summary'")  
         
@@ -205,7 +210,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         dec_outputs, attention_dists = [], []
 
-        for i in tqdm(range(1, self.seq_len)):
+        for i in tqdm(range(1, self.output_seq_len)):
             
             # (batch_size, seq_len)
             dec_inp_ids_ = mask_timestamp(dec_inp_ids, i, MASK_ID)
@@ -269,9 +274,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         # (batch_size x (seq_len - 1), 1, 1, seq_len) 
         padding_mask = tf.tile(padding_mask, [T-1, 1, 1, 1])
-        
-#         with tf.device("/device:GPU:0"):
-        
+                
         # (batch_size x (seq_len - 1), seq_len, d_bert)
         context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
 
@@ -336,7 +339,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         dec_logits += [tf.tile(tf.expand_dims(tf.one_hot([CLS_ID], self.vocab_size), axis=0), [N, 1, 1])]
 
-        for i in tqdm(range(1, self.seq_len)):
+        for i in tqdm(range(1, self.output_seq_len)):
             
             # (batch_size, seq_len)
             refined_summary_ = mask_timestamp(refined_summary, i, MASK_ID)
@@ -567,7 +570,8 @@ model = AbstractiveSummarization(
     num_heads=config.NUM_HEADS,
     dff=config.D_FF,
     vocab_size=config.VOCAB_SIZE,
-    seq_len=config.SEQ_LEN,
+    input_seq_len=config.INPUT_SEQ_LEN,
+    output_seq_len=config.OUTPUT_SEQ_LEN,
     rate=config.DROPOUT_RATE
 )
 

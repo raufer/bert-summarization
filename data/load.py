@@ -5,10 +5,11 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_datasets as tfds
 
+from functools import partial
 from tensorflow.keras import backend as K
 from ops.tokenization import tokenizer
+
 from config import config
-from functools import partial
 
 
 # Special Tokens
@@ -26,9 +27,12 @@ def pad(l, n, pad=0):
     return np.pad(l, pad_with, mode='constant', constant_values=pad)
 
 
-def encode(sent_1, sent_2, tokenizer, seq_len):
+def encode(sent_1, sent_2, tokenizer, input_seq_len, output_seq_len):
     """
     Encode the text to the BERT expected format
+    
+    'input_seq_len' is used to truncate the the article length
+    'output_seq_len' is used to truncate the the summary length
 
     BERT has the following special tokens:    
     
@@ -53,10 +57,10 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     tokens_2 = tokenizer.tokenize(sent_2.numpy())
     
     # Account for [CLS] and [SEP] with "- 2"
-    if len(tokens_1) > seq_len - 2:
-        tokens_1 = tokens_1[0:(seq_len - 2)]
-    if len(tokens_2) > (seq_len + 1) - 2:
-        tokens_2 = tokens_2[0:((seq_len + 1) - 2)]
+    if len(tokens_1) > input_seq_len - 2:
+        tokens_1 = tokens_1[0:(input_seq_len - 2)]
+    if len(tokens_2) > (output_seq_len + 1) - 2:
+        tokens_2 = tokens_2[0:((output_seq_len + 1) - 2)]
         
     tokens_1 = ["[CLS]"] + tokens_1 + ["[SEP]"]
     tokens_2 = ["[CLS]"] + tokens_2 + ["[SEP]"]
@@ -67,10 +71,10 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     input_mask_1 = [1] * len(input_ids_1)
     input_mask_2 = [1] * len(input_ids_2)
 
-    input_ids_1 = pad(input_ids_1, seq_len, 0)
-    input_ids_2 = pad(input_ids_2, seq_len + 1, 0)
-    input_mask_1 = pad(input_mask_1, seq_len, 0)
-    input_mask_2 = pad(input_mask_2, seq_len + 1, 0)
+    input_ids_1 = pad(input_ids_1, input_seq_len, 0)
+    input_ids_2 = pad(input_ids_2, output_seq_len + 1, 0)
+    input_mask_1 = pad(input_mask_1, input_seq_len, 0)
+    input_mask_2 = pad(input_mask_2, output_seq_len + 1, 0)
     
     input_type_ids_1 = [0] * len(input_ids_1)
     input_type_ids_2 = [0] * len(input_ids_2)
@@ -78,7 +82,7 @@ def encode(sent_1, sent_2, tokenizer, seq_len):
     return input_ids_1, input_mask_1, input_type_ids_1, input_ids_2, input_mask_2, input_type_ids_2
 
 
-def tf_encode(tokenizer, seq_len):
+def tf_encode(tokenizer, input_seq_len, output_seq_len):
     """
     Operations inside `.map()` run in graph mode and receive a graph
     tensor that do not have a `numpy` attribute.
@@ -87,7 +91,7 @@ def tf_encode(tokenizer, seq_len):
     which receives an eager tensor having a numpy attribute that contains the string value.
     """    
     def f(s1, s2):
-        encode_ = partial(encode, tokenizer=tokenizer, seq_len=seq_len)
+        encode_ = partial(encode, tokenizer=tokenizer, input_seq_len=input_seq_len, output_seq_len=output_seq_len)
         return tf.py_function(encode_, [s1, s2], [tf.int32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32])
     
     return f
@@ -107,7 +111,7 @@ def pipeline(examples, tokenizer, cache=False):
     x_ids, x_mask, x_segments, y_ids, y_maks, y_segments
     """
     
-    dataset = examples.map(tf_encode(tokenizer, config.SEQ_LEN))
+    dataset = examples.map(tf_encode(tokenizer, config.INPUT_SEQ_LEN, config.OUTPUT_SEQ_LEN))
     dataset = dataset.filter(filter_max_length)
 
     if cache:
