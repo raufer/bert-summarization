@@ -111,8 +111,10 @@ def pipeline(examples, tokenizer, cache=False):
     x_ids, x_mask, x_segments, y_ids, y_maks, y_segments
     """
     
-    dataset = examples.map(tf_encode(tokenizer, config.INPUT_SEQ_LEN, config.OUTPUT_SEQ_LEN))
-    dataset = dataset.filter(filter_max_length)
+    dataset = examples.map(tf_encode(tokenizer, config.INPUT_SEQ_LEN, config.OUTPUT_SEQ_LEN), num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    
+    if config.MAX_EXAMPLE_LEN is not None:
+        dataset = dataset.filter(filter_max_length)
 
     if cache:
         dataset = dataset.cache()

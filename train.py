@@ -63,16 +63,6 @@ BERT_MODEL_URL = "https://tfhub.dev/google/bert_uncased_L-12_H-768_A-12/1"
 
 logging.info('Job Configuration:\n' + str(config))
 
-train_dataset, val_dataset, test_dataset, n_train_examples, n_val_examples, n_test_examples = load_cnn_dailymail()
-
-n_train_batches = n_train_examples // config.BATCH_SIZE
-n_val_batches = n_val_examples // config.BATCH_SIZE
-n_test_batches = n_test_examples // config.BATCH_SIZE
-
-logging.info(f"'{n_train_examples}' training examples, '{n_train_batches}' batches")
-logging.info(f"'{n_val_examples}' validation examples, '{n_val_batches}' batches")
-logging.info(f"'{n_test_examples}' testing examples, '{n_test_batches}' batches")
-
 
 def _embedding_from_bert():
     """
@@ -81,12 +71,15 @@ def _embedding_from_bert():
     """
     logger.info("Extracting pretrained word embeddings weights from BERT")
     
-    bert = hub.Module(BERT_MODEL_URL, trainable=False, name="embeddings_from_bert_module")    
+    with tf.device("/device:CPU:0"):
+        bert = hub.Module(BERT_MODEL_URL, trainable=False, name="embeddings_from_bert_module")    
     
     with tf.Session() as sess:
         initialize_vars(sess)
         embedding_matrix = sess.run(bert.variable_map['bert/embeddings/word_embeddings'])
-                
+        
+    tf.reset_default_graph()    
+                        
     logger.info(f"Embedding matrix shape '{embedding_matrix.shape}'")
     return embedding_matrix
 
@@ -104,7 +97,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         self.vocab_size = vocab_size
     
-        self.bert = BertLayer(seq_len=seq_len, d_embedding=d_model, trainable=False)
+        self.bert = BertLayer(d_embedding=d_model, trainable=False)
         
         embedding_matrix = _embedding_from_bert()
         
@@ -253,7 +246,7 @@ class AbstractiveSummarization(tf.keras.Model):
         logging.info("Building: 'Refined Summary'")              
         
         N = tf.shape(enc_output)[0]
-        T = tf.shape(enc_output)[1]
+        T = self.output_seq_len
 
         # (batch_size, seq_len) x3
         dec_inp_ids, dec_inp_mask, dec_inp_segment_ids = target
@@ -274,7 +267,7 @@ class AbstractiveSummarization(tf.keras.Model):
         
         # (batch_size x (seq_len - 1), 1, 1, seq_len) 
         padding_mask = tf.tile(padding_mask, [T-1, 1, 1, 1])
-                
+                        
         # (batch_size x (seq_len - 1), seq_len, d_bert)
         context_vectors = self.bert((dec_inp_ids, dec_inp_mask, dec_inp_segment_ids))   
 
@@ -286,7 +279,7 @@ class AbstractiveSummarization(tf.keras.Model):
             look_ahead_mask=None,
             padding_mask=padding_mask
         )
-                
+                        
         # (batch_size x (seq_len - 1), seq_len - 1, d_bert)
         dec_outputs = dec_outputs[:, 1:, :]
         
@@ -300,7 +293,7 @@ class AbstractiveSummarization(tf.keras.Model):
         # (batch_size x (seq_len - 1), d_bert)
         dec_outputs = tf.gather_nd(dec_outputs, indices)
         
-        # (batch_size x (seq_len - 1), d_bert)
+        # (batch_size, seq_len - 1, d_bert)
         dec_outputs = tf.reshape(dec_outputs, [N, T-1, -1])
         
         # (batch_size, seq_len - 1, vocab_len)
@@ -397,7 +390,6 @@ class AbstractiveSummarization(tf.keras.Model):
         __call__ for training; uses teacher forcing for both the draft
         and the defined decoder
         """
-        
         # (batch_size, seq_len) x3
         input_ids, input_mask, input_segment_ids = inp
         
@@ -409,7 +401,7 @@ class AbstractiveSummarization(tf.keras.Model):
 
         # (batch_size, seq_len, d_bert)
         enc_output = self.encode(input_ids, input_mask, input_segment_ids)
-
+        
         # (batch_size, seq_len , vocab_len), (batch_size, seq_len), (_)
         logits_draft_summary, preds_draft_summary, draft_attention_dist = self.draft_summary(
             enc_output=enc_output,
@@ -417,10 +409,10 @@ class AbstractiveSummarization(tf.keras.Model):
             padding_mask=dec_padding_mask,
             target_ids=target_ids[:, :-1],
             training=True
-        )             
-
+        )
+    
         # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary(
+        logits_refined_summary, preds_refined_summary, refined_attention_dist = self.refined_summary_iter(
             enc_output=enc_output,
             target=(target_ids[:, :-1], target_mask[:, :-1], target_segment_ids[:, :-1]),            
             padding_mask=dec_padding_mask,
@@ -435,8 +427,6 @@ class AbstractiveSummarization(tf.keras.Model):
         __call__ for inference; uses teacher forcing for both the draft
         and the defined decoder
         """
-        
-            
         # (batch_size, seq_len) x3
         input_ids, input_mask, input_segment_ids = inp
 
@@ -576,6 +566,17 @@ model = AbstractiveSummarization(
 )
 
 
+train_dataset, val_dataset, test_dataset, n_train_examples, n_val_examples, n_test_examples = load_cnn_dailymail()
+
+n_train_batches = n_train_examples // config.BATCH_SIZE
+n_val_batches = n_val_examples // config.BATCH_SIZE
+n_test_batches = n_test_examples // config.BATCH_SIZE
+
+logging.info(f"'{n_train_examples}' training examples, '{n_train_batches}' batches")
+logging.info(f"'{n_val_examples}' validation examples, '{n_val_batches}' batches")
+logging.info(f"'{n_test_examples}' testing examples, '{n_test_batches}' batches")
+
+
 train_iterator = train_dataset.make_initializable_iterator()
 train_stream = train_iterator.get_next()
 
@@ -592,8 +593,8 @@ saver = tf.train.Saver(max_to_keep=config.NUM_EPOCHS)
 
 
 config_tf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
-config_tf.gpu_options.allocator_type = 'BFC'
-config_tf.gpu_options.per_process_gpu_memory_fraction = 0.60
+# config_tf.gpu_options.allocator_type = 'BFC'
+# config_tf.gpu_options.per_process_gpu_memory_fraction = 0.60
 config_tf.gpu_options.allow_growth=True
 
 run_options = tf.RunOptions(report_tensor_allocations_upon_oom = True)

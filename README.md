@@ -64,7 +64,7 @@ Missing:
 | WARMUP_STEPS    | 4000        |                                             |
 | INPUT_SEQ_LEN   | 512         | Article length to truncate                  |
 | OUTPUT_SEQ_LEN  | 100         | Summary length to truncate                  |
-| MAX_EXAMPLE_LEN | 512         | Threshold to filter examples                |
+| MAX_EXAMPLE_LEN | None        | Threshold to filter examples (articles)     |
 | VOCAB_SIZE      | 30522       | Length of the vocabulary                    |
 | NUM_LAYERS      | 8           | Number of layers of the Transformer Decoder |
 | D_MODEL         | 768         | Base embedding dimensionality (as BERT)     |
