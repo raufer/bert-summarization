@@ -431,111 +431,139 @@ class AbstractiveSummarization(tf.keras.Model):
         
         return logits_draft_summary, preds_draft_summary, draft_attention_dist, logits_refined_summary, preds_refined_summary, refined_attention_dist
     
+
+def train(model, xs, ys, gradient_accumulation=False):
+
+    logging.info("Building Training Graph")
+    logging.info(f"w/ Gradient Accumulation: {str(gradient_accumulation)}")
     
-    def train(self, xs, ys):
-        
-        logging.info("Building Training Graph")
+    # (batch_size, seq_len + 1) x3
+    target_ids, _, _ = ys
 
-        # (batch_size, seq_len + 1) x3
-        target_ids, _, _ = ys
-            
-        # (batch_size, seq_len, vocab_len), (batch_size, seq_len, vocab_len)
-        logits_draft_summary, logits_refined_summary = self(xs, ys, True)
-        
-        target_ids_ = label_smoothing(tf.one_hot(target_ids, depth=self.vocab_size))
+    # (batch_size, seq_len, vocab_len), (batch_size, seq_len, vocab_len)
+    logits_draft_summary, logits_refined_summary = model(xs, ys, True)
 
-        # use right shifted target, (batch_size, seq_len)
-        loss_draft = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_draft_summary, labels=target_ids_[:, 1:, :])
-        mask = tf.math.logical_not(tf.math.equal(target_ids[:, 1:], 0))    
-        mask = tf.cast(mask, dtype=loss_draft.dtype)
-        loss_draft *= mask
-        
-        # use non-shifted target (we want to predict the masked word), (batch_size, seq_len)
-        loss_refined = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_refined_summary, labels=target_ids_[:, :-1, :])
-        mask = tf.math.logical_not(tf.math.equal(target_ids[:, :-1], 0))    
-        mask = tf.cast(mask, dtype=loss_refined.dtype)
-        loss_refined *= mask        
+    target_ids_ = label_smoothing(tf.one_hot(target_ids, depth=model.vocab_size))
 
-        # (batch_size, seq_len)
-        loss = loss_draft + loss_refined            
-        # scalar
-        loss = tf.reduce_mean(loss)
+    # use right shifted target, (batch_size, seq_len)
+    loss_draft = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_draft_summary, labels=target_ids_[:, 1:, :])
+    mask = tf.math.logical_not(tf.math.equal(target_ids[:, 1:], 0))    
+    mask = tf.cast(mask, dtype=loss_draft.dtype)
+    loss_draft *= mask
 
-        global_step = tf.train.get_or_create_global_step()
-        learning_rate = noam_scheme(initial_lr, global_step, warmup_steps)
-        optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-9)
+    # use non-shifted target (we want to predict the masked word), (batch_size, seq_len)
+    loss_refined = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_refined_summary, labels=target_ids_[:, :-1, :])
+    mask = tf.math.logical_not(tf.math.equal(target_ids[:, :-1], 0))    
+    mask = tf.cast(mask, dtype=loss_refined.dtype)
+    loss_refined *= mask        
+
+    # (batch_size, seq_len)
+    loss = loss_draft + loss_refined            
+    # scalar
+    loss = tf.reduce_mean(loss)
+
+    global_step = tf.train.get_or_create_global_step()
+    learning_rate = noam_scheme(initial_lr, global_step, warmup_steps)
+    optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-9)
+    
+    tf.summary.scalar('learning_rate', learning_rate, family='train')
+    tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='train')
+    tf.summary.scalar('loss_refined', tf.reduce_mean(loss_refined * mask), family='train')
+    tf.summary.scalar("loss", loss, family='train')
+    tf.summary.scalar("global_step", global_step, family='train')
+
+    summaries = tf.summary.merge_all()
+    
+    if gradient_accumulation:
+    
+        tvs = tf.trainable_variables()
+
+        accumulation_variables = [
+            tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False)
+            for tv in tvs
+        ]
+
+        zero_op = [tv.assign(tf.zeros_like(tv)) for tv in accumulation_variables]
+
+        gradients_vs = optimizer.compute_gradients(
+            loss=loss,
+            var_list=tvs,
+            colocate_gradients_with_ops=True,
+            aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N
+        )
+
+        accumlation_op = [accumulation_variables[i].assign_add(gv[0]) for i, gv in enumerate(gradients_vs) if gv[0] is not None]
+
+        #  pass list of (gradient, variable) pairs
+        train_op = optimizer.apply_gradients([(accumulation_variables[i], gv[1]) for i, gv in enumerate(gradients_vs)], global_step)
+
+        return loss, zero_op, accumlation_op, train_op, global_step, summaries
+    
+    else:
         
         train_op = optimizer.minimize(
             loss,
             global_step=global_step,
-#             colocate_gradients_with_ops=True,
+            colocate_gradients_with_ops=True,
             aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N
         )
         
-        tf.summary.scalar('learning_rate', learning_rate, family='train')
-        tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='train')
-        tf.summary.scalar('loss_refined', tf.reduce_mean(loss_refined * mask), family='train')
-        tf.summary.scalar("loss", loss, family='train')
-        tf.summary.scalar("global_step", global_step, family='train')
-
-        summaries = tf.summary.merge_all()
-
         return loss, train_op, global_step, summaries
+
     
-    def eval(self, xs, ys):
-        
-        logging.info("Building Evaluation Graph")
-            
-        # (batch_size, seq_len + 1) x3
-        target_ids, _, _ = ys
-                        
-        # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_), (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
-        logits_draft_summary, preds_draft_summary, _, logits_refined_summary, preds_refined_summary, _ = self(xs)
-        
-        target_ids_ = label_smoothing(tf.one_hot(target_ids, depth=self.vocab_size))
-        
-        # use right shifted target, (batch_size, seq_len)
-        loss_draft = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_draft_summary, labels=target_ids_[:, 1:, :])
-        mask = tf.math.logical_not(tf.math.equal(target_ids[:, 1:], 0))    
-        mask = tf.cast(mask, dtype=loss_draft.dtype)
-        loss_draft *= mask
-        
-        # use non-shifted target (we want to predict the masked word), (batch_size, seq_len)
-        loss_refined = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_refined_summary, labels=target_ids_[:, :-1, :])
-        mask = tf.math.logical_not(tf.math.equal(target_ids[:, :-1], 0))    
-        mask = tf.cast(mask, dtype=loss_refined.dtype)
-        loss_refined *= mask        
+def eval(model, xs, ys):
 
-        # (batch_size, seq_len)
-        loss = loss_draft + loss_refined
-        
-        # scalar
-        loss = tf.reduce_mean(loss)
-        
-        # monitor a random sample
-        n = tf.random_uniform((), 0, tf.shape(xs[0])[0] - 1, tf.int32)
-        
-        x_rnd = convert_idx_to_token_tensor(xs[0][n])
-        y_rnd = convert_idx_to_token_tensor(target_ids[n, :-1])
-        y_hat_rnd = convert_idx_to_token_tensor(preds_refined_summary[n])
-        
-        r1_val, r2_val, rl_val, r_vag = calculate_rouge(y_rnd, y_hat_rnd)
+    logging.info("Building Evaluation Graph")
 
-        tf.summary.text("input", x_rnd)
-        tf.summary.text("target", y_rnd)
-        tf.summary.text("prediction", y_hat_rnd)
-        
-        tf.summary.scalar('ROUGE-1', r1_val, family='eval')
-        tf.summary.scalar('ROUGE-2', r2_val, family='eval')
-        tf.summary.scalar("ROUGE-L", rl_val, family='eval')
-        tf.summary.scalar("R-AVG", r_vag, family='eval')
+    # (batch_size, seq_len + 1) x3
+    target_ids, _, _ = ys
 
-        tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='eval')
-        tf.summary.scalar('loss_refined', tf.reduce_mean(loss_refined * mask), family='eval')
-        tf.summary.scalar("loss", loss, family='eval')
+    # (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_), (batch_size, seq_len, vocab_len), (batch_size, seq_len), (_)
+    logits_draft_summary, preds_draft_summary, _, logits_refined_summary, preds_refined_summary, _ = model(xs)
 
-        summaries = tf.summary.merge_all()
+    target_ids_ = label_smoothing(tf.one_hot(target_ids, depth=model.vocab_size))
 
-        # (batch_size, seq_len), (batch_size, seq_len), scalar, object
-        return target_ids[:, :-1], preds_refined_summary, loss, summaries   
-    
+    # use right shifted target, (batch_size, seq_len)
+    loss_draft = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_draft_summary, labels=target_ids_[:, 1:, :])
+    mask = tf.math.logical_not(tf.math.equal(target_ids[:, 1:], 0))    
+    mask = tf.cast(mask, dtype=loss_draft.dtype)
+    loss_draft *= mask
+
+    # use non-shifted target (we want to predict the masked word), (batch_size, seq_len)
+    loss_refined = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_refined_summary, labels=target_ids_[:, :-1, :])
+    mask = tf.math.logical_not(tf.math.equal(target_ids[:, :-1], 0))    
+    mask = tf.cast(mask, dtype=loss_refined.dtype)
+    loss_refined *= mask        
+
+    # (batch_size, seq_len)
+    loss = loss_draft + loss_refined
+
+    # scalar
+    loss = tf.reduce_mean(loss)
+
+    # monitor a random sample
+    n = tf.random_uniform((), 0, tf.shape(xs[0])[0] - 1, tf.int32)
+
+    x_rnd = convert_idx_to_token_tensor(xs[0][n])
+    y_rnd = convert_idx_to_token_tensor(target_ids[n, :-1])
+    y_hat_rnd = convert_idx_to_token_tensor(preds_refined_summary[n])
+
+    r1_val, r2_val, rl_val, r_vag = calculate_rouge(y_rnd, y_hat_rnd)
+
+    tf.summary.text("input", x_rnd)
+    tf.summary.text("target", y_rnd)
+    tf.summary.text("prediction", y_hat_rnd)
+
+    tf.summary.scalar('ROUGE-1', r1_val, family='eval')
+    tf.summary.scalar('ROUGE-2', r2_val, family='eval')
+    tf.summary.scalar("ROUGE-L", rl_val, family='eval')
+    tf.summary.scalar("R-AVG", r_vag, family='eval')
+
+    tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='eval')
+    tf.summary.scalar('loss_refined', tf.reduce_mean(loss_refined * mask), family='eval')
+    tf.summary.scalar("loss", loss, family='eval')
+
+    summaries = tf.summary.merge_all()
+
+    # (batch_size, seq_len), (batch_size, seq_len), scalar, object
+    return target_ids[:, :-1], preds_refined_summary, loss, summaries   

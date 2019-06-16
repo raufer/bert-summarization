@@ -4,6 +4,7 @@ from bunch import Bunch
 config = {
     'NUM_EPOCHS': 3,    
     "BATCH_SIZE": 2,
+    "GRADIENT_ACCUMULATION_N_STEPS": 12,
     "BUFFER_SIZE": 1,
     "INITIAL_LR": 0.003,
     "WARMUP_STEPS": 4000,
