@@ -471,7 +471,7 @@ class AbstractiveSummarization(tf.keras.Model):
 #             colocate_gradients_with_ops=True,
             aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N
         )
-
+        
         tf.summary.scalar('learning_rate', learning_rate, family='train')
         tf.summary.scalar('loss_draft', tf.reduce_mean(loss_draft * mask), family='train')
         tf.summary.scalar('loss_refined', tf.reduce_mean(loss_refined * mask), family='train')

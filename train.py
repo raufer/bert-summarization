@@ -103,11 +103,11 @@ with tf.Session(config=config_tf) as sess:
     if ckpt is None:
         logging.info("Initializing from scratch")
         sess.run(tf.global_variables_initializer())
-        save_variable_specs(os.path.join(config.LOGDIR, "specs"))
+#         save_variable_specs(os.path.join(config.LOGDIR, "specs"))
     else:
         saver.restore(sess, ckpt)        
 
-    summary_writer_train = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'train'), sess.graph)
+    summary_writer_train = tf.summary.FileWriter(os.path.join(config.LOGDIR), sess.graph)
 #     summary_writer_eval = tf.summary.FileWriter(os.path.join(config.LOGDIR, 'eval'), sess.graph)
 
     initialize_vars(sess)
