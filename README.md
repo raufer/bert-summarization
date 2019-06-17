@@ -37,7 +37,13 @@ Where the train and evaluation metrics can be tracked;
 
 Note that `train.py` does not run the validation graph (validation set) in parallel with the training job.
 
-To integrate the validation job in parallel with the training run `train_eval.py` (takes a long time to build the inference graph and start the training); at the end of each epoch, it uses the model inference mode (autoregressive) to calculate the loss and ROUGE metrics; it also shows writes a random article/summary prediction.
+To run the validation job in parallel with the training:
+
+```
+python train.py --eval
+```
+
+takes a long time to build the inference graph and start the training; at the end of each epoch, it uses the model inference mode (autoregressive) to calculate the loss and ROUGE metrics; it also shows writes a random article/summary prediction.
 
 #### Resource Limitations
 

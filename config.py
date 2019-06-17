@@ -9,7 +9,7 @@ config = {
     "INITIAL_LR": 0.003,
     "WARMUP_STEPS": 4000,
     "INPUT_SEQ_LEN": 512,
-    "OUTPUT_SEQ_LEN": 75,
+    "OUTPUT_SEQ_LEN": 72,
     "MAX_EXAMPLE_LEN": None,
     "VOCAB_SIZE": 30522,    
     "NUM_LAYERS": 8,
