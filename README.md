@@ -126,7 +126,7 @@ are filling up the memory.
 run_options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
 ...
 sess.run(..., options=run_options)
-``
+```
 
 
 
