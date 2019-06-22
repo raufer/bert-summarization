@@ -2,11 +2,11 @@ from bunch import Bunch
 
 
 config = {
-    'NUM_EPOCHS': 3,    
+    'NUM_EPOCHS': 4,    
     "BATCH_SIZE": 2,
-    "GRADIENT_ACCUMULATION_N_STEPS": 12,
+    "GRADIENT_ACCUMULATION_N_STEPS": 18,
     "BUFFER_SIZE": 1,
-    "INITIAL_LR": 0.003,
+    "INITIAL_LR": 0.0003,
     "WARMUP_STEPS": 4000,
     "INPUT_SEQ_LEN": 512,
     "OUTPUT_SEQ_LEN": 72,
@@ -18,7 +18,7 @@ config = {
     "NUM_HEADS": 8,
     "DROPOUT_RATE": 0.1,
     "LOGDIR": 'log',
-    "CHECKPOINTDIR": 'checkpoint'
+    "CHECKPOINTDIR": 'checkpoint2'
 }
 
 config = Bunch(config)
